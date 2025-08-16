@@ -1,0 +1,48 @@
+using UnityEngine;
+
+public class SmoothCameraFollow : MonoBehaviour
+{
+    [SerializeField] Transform target;
+    [SerializeField] float followSmooth = 8f;
+
+    [Header("Zoom dinámico")]
+    [SerializeField] Camera cam;
+    [SerializeField] float baseOrthoSize = 6f;   // zoom base cuando el jugador está en tamaño inicial
+    [SerializeField] float sizePerUnit = 2.0f;   // cuánto aumenta el orthoSize por cada unidad extra de escala del jugador
+    [SerializeField] float zoomSmooth = 6f;
+    [SerializeField] float minOrtho = 4f, maxOrtho = 20f;
+
+    Vector3 vel;
+
+    void Reset()
+    {
+        cam = GetComponent<Camera>();
+        if (!cam) cam = Camera.main;
+    }
+
+    public void SetTarget(Transform t, bool snap = false)
+    {
+        target = t;
+        if (snap && target) transform.position = new Vector3(target.position.x, target.position.y, transform.position.z);
+    }
+
+    void LateUpdate()
+    {
+        if (!cam) cam = Camera.main;
+        if (!target) return;
+
+        // Seguir suavemente
+        Vector3 desired = new Vector3(target.position.x, target.position.y, transform.position.z);
+        transform.position = Vector3.Lerp(transform.position, desired, 1f - Mathf.Exp(-followSmooth * Time.deltaTime));
+
+        // Zoom en función de la escala del jugador
+        float ortho = baseOrthoSize;
+        if (GameManager.LocalPlayerSize != null)
+        {
+            float extra = Mathf.Max(0f, GameManager.LocalPlayerSize.CurrentScale - GameManager.LocalPlayerSize.initialScale);
+            ortho = baseOrthoSize + extra * sizePerUnit;
+        }
+        ortho = Mathf.Clamp(ortho, minOrtho, maxOrtho);
+        cam.orthographicSize = Mathf.Lerp(cam.orthographicSize, ortho, 1f - Mathf.Exp(-zoomSmooth * Time.deltaTime));
+    }
+}

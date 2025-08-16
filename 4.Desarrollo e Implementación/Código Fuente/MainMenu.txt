@@ -1,0 +1,36 @@
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+using UnityEngine.SceneManagement;
+using Photon.Pun;
+
+public class MainMenu : MonoBehaviour
+{
+    [SerializeField] TMP_InputField nameInput;
+    [SerializeField] Button playButton;
+    [SerializeField] string gameSceneName = "Game"; // usa el nombre real de tu escena de juego
+
+    void Start()
+    {
+        string saved = PlayerPrefs.GetString("PlayerName", "");
+        if (nameInput) nameInput.text = saved;
+        if (playButton) playButton.onClick.AddListener(OnPlay);
+    }
+
+    void OnPlay()
+    {
+        string nick = nameInput ? nameInput.text.Trim() : "";
+        if (string.IsNullOrEmpty(nick))
+            nick = "Jugador" + Random.Range(1000, 9999);
+
+        PlayerPrefs.SetString("PlayerName", nick);
+        PlayerPrefs.Save();
+
+        PhotonNetwork.NickName = nick; // se conservará cuando conectes
+        SceneManager.LoadScene(gameSceneName);
+    }
+    void Update()
+    {
+        if (Input.GetKeyDown(KeyCode.Return)) OnPlay();
+    }
+}

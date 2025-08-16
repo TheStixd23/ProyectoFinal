@@ -1,0 +1,50 @@
+using UnityEngine;
+using Photon.Pun;
+using Photon.Realtime;
+
+public class RoomManager : MonoBehaviourPunCallbacks
+{
+    public string roomName = "Room1";
+
+    
+    void Awake()
+    {
+        PhotonNetwork.AutomaticallySyncScene = true;
+        string saved = PlayerPrefs.GetString("PlayerName", "");
+        if (!string.IsNullOrEmpty(saved))
+            PhotonNetwork.NickName = saved;
+    }
+    void Start()
+    {
+        // --- 1) Conectar al servidor maestro ---
+        Debug.Log("🟡 Conectando al servidor de Photon...");
+        PhotonNetwork.ConnectUsingSettings();
+    }
+
+    public override void OnConnectedToMaster()
+    {
+        base.OnConnectedToMaster();
+
+        // --- Conectado al servidor maestro ---
+        Debug.Log("🟢 Conectado al servidor maestro. Ahora entrando al lobby...");
+        PhotonNetwork.JoinLobby();
+    }
+
+    public override void OnJoinedLobby()
+    {
+        base.OnJoinedLobby();
+
+        // --- 2) Dentro del lobby, unirse o crear la sala ---
+        Debug.Log($"🟡 En el lobby. Intentando unirme o crear la sala '{roomName}'...");
+        PhotonNetwork.JoinOrCreateRoom(roomName, new RoomOptions { MaxPlayers = 20 }, TypedLobby.Default);
+    }
+
+    public override void OnJoinedRoom()
+    {
+        base.OnJoinedRoom();
+
+        // --- 3) ¡Dentro de la sala! ---
+        Debug.Log($"✅ Entraste a la sala '{roomName}'. Instanciando jugador...");
+        GameManager.Instance?.SpawnPlayer();
+    }
+}

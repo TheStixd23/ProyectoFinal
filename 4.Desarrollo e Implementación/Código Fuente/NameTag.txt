@@ -1,0 +1,62 @@
+using Photon.Pun;
+using TMPro;
+using UnityEngine;
+
+[RequireComponent(typeof(PhotonView))]
+public class NameTag : MonoBehaviourPun
+{
+    [SerializeField] TMP_Text label;     // TextMeshPro - Text (3D) en un hijo
+    [SerializeField] bool keepConstantSize = true;
+    [SerializeField] float baseScale = 0.5f; // ajusta si se ve muy grande/pequeño
+    [SerializeField] int maxChars = 16;
+
+    void Reset() { label = GetComponentInChildren<TMP_Text>(true); }
+
+    void Start()
+    {
+        if (label == null) label = GetComponentInChildren<TMP_Text>(true);
+
+        string nick = photonView.Owner?.NickName;
+        if (string.IsNullOrWhiteSpace(nick)) nick = PlayerPrefs.GetString("PlayerName", "Jugador");
+        nick = nick.Trim();
+        if (nick.Length > maxChars) nick = nick.Substring(0, maxChars);
+
+        if (label)
+        {
+            label.text = nick;
+            label.alignment = TextAlignmentOptions.Center;
+
+            // Centro exacto del player
+            label.transform.localPosition = Vector3.zero;
+            label.transform.localRotation = Quaternion.identity;
+
+            // Asegurar que se dibuja por delante del sprite del player
+            var mySr = GetComponent<SpriteRenderer>();
+            var mr = label.GetComponent<Renderer>();
+            if (mr != null)
+            {
+                if (mySr != null)
+                {
+                    mr.sortingLayerID = mySr.sortingLayerID;
+                    mr.sortingOrder = mySr.sortingOrder + 100; // MUY por delante
+                }
+                else
+                {
+                    mr.sortingOrder = 100;
+                }
+            }
+        }
+    }
+
+    void LateUpdate()
+    {
+        if (!label) return;
+
+        if (keepConstantSize)
+        {
+            float s = transform.lossyScale.x;
+            if (s <= 0.0001f) s = 1f;
+            label.transform.localScale = Vector3.one * (baseScale / s);
+        }
+    }
+}

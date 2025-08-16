@@ -1,0 +1,81 @@
+using UnityEngine;
+using Photon.Pun;
+
+[RequireComponent(typeof(SizeManager), typeof(PlayerColor), typeof(CircleCollider2D))]
+public class ShootMass : MonoBehaviourPun
+{
+    public string pelletPrefabName = "MassPellet";
+
+    [Header("Disparo")]
+    [Tooltip("Velocidad inicial del pellet (en unidades/seg).")]
+    public float pelletInitialSpeed = 14f;
+    [Tooltip("Margen extra para spawnear fuera del borde del jugador.")]
+    public float extraMargin = 0.12f;
+    [Tooltip("Tiempo mínimo entre disparos.")]
+    public float pelletCooldown = 0.12f;
+
+    SizeManager size;
+    PlayerColor pcol;
+    CircleCollider2D myCol;
+    float lastShotTime;
+
+    void Awake()
+    {
+        size = GetComponent<SizeManager>();
+        pcol  = GetComponent<PlayerColor>();
+        myCol = GetComponent<CircleCollider2D>();
+    }
+
+    void Update()
+    {
+        if (!photonView.IsMine) return;
+
+        if (Input.GetMouseButtonDown(0) && Time.time - lastShotTime > pelletCooldown)
+        {
+            if (size.CurrentScale - size.foodDelta < size.initialScale) return;
+            lastShotTime = Time.time;
+            Shoot();
+        }
+    }
+
+    void Shoot()
+    {
+        // 1) Reducir masa/tamaño
+        size.SetScale(size.CurrentScale - size.foodDelta);
+
+        // 2) Dirección hacia el mouse
+        Camera cam = Camera.main;
+        Vector3 mouse = cam ? cam.ScreenToWorldPoint(Input.mousePosition) : (Vector3)transform.position + Vector3.right;
+        mouse.z = 0f;
+        Vector2 dir = ((Vector2)(mouse - transform.position)).normalized;
+        if (dir.sqrMagnitude < 0.0001f) dir = Vector2.right;
+
+        // 3) Radio del jugador (en mundo)
+        float playerRadius = myCol ? myCol.radius * transform.lossyScale.x : 0.6f;
+
+        // 4) Spawnear pegado al borde pero con margen
+        Vector3 spawnPos = transform.position + (Vector3)(dir * (playerRadius + extraMargin));
+
+        // 5) Instanciar pellet en red
+        GameObject pellet = PhotonNetwork.Instantiate(pelletPrefabName, spawnPos, Quaternion.identity);
+
+        var pelletPV = pellet.GetComponent<PhotonView>();
+        var rb = pellet.GetComponent<Rigidbody2D>();
+
+        // 6) Color y dueño (para ignorar al creador)
+        if (pelletPV != null && pcol != null)
+        {
+            Color c = pcol.CurrentColor;
+            pelletPV.RPC(nameof(MassPellet.RPC_SetPelletColor), RpcTarget.AllBuffered, c.r, c.g, c.b, 1f);
+
+            // MUY IMPORTANTE: pasamos el ViewID del dueño, no solo el Actor, para encontrar sus colliders con precisión
+            pelletPV.RPC(nameof(MassPellet.RPC_Initialize), RpcTarget.AllBuffered, photonView.ViewID);
+        }
+
+        // 7) Velocidad inicial directa (más fiable que AddForce para este caso)
+        if (rb)
+        {
+            rb.linearVelocity = dir * pelletInitialSpeed;   // <<--- clave
+        }
+    }
+}

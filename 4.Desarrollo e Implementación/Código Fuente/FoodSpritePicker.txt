@@ -1,0 +1,68 @@
+using UnityEngine;
+using Photon.Pun;
+
+/// <summary>
+/// Asigna aleatoriamente un sprite de fruta a la Food y lo sincroniza en red.
+/// Pon este script en el prefab "Food" y arrástrale los sprites en el Inspector.
+/// </summary>
+[RequireComponent(typeof(SpriteRenderer))]
+public class FoodSpritePicker : MonoBehaviourPun
+{
+    [Header("Sprites de frutas (asignar en el Inspector)")]
+    public Sprite[] fruitSprites;
+
+    [Header("Variedad visual")]
+    public bool randomRotation = true;
+    [Range(0.5f, 2f)] public float minScale = 0.9f;
+    [Range(0.5f, 2f)] public float maxScale = 1.15f;
+
+    SpriteRenderer sr;
+
+    void Awake()
+    {
+        sr = GetComponent<SpriteRenderer>();
+        if (sr) sr.color = Color.white; // importante: dejamos el color en blanco para ver el sprite tal cual
+    }
+
+    [PunRPC]
+    public void RPC_SetSpriteIndex(int idx, float rotZ, float scale)
+    {
+        Apply(idx, rotZ, scale);
+    }
+
+    void Apply(int idx, float rotZ, float scale)
+    {
+        if (sr == null) sr = GetComponent<SpriteRenderer>();
+        if (fruitSprites == null || fruitSprites.Length == 0) return;
+
+        idx = Mathf.Clamp(idx, 0, fruitSprites.Length - 1);
+        sr.sprite = fruitSprites[idx];
+        sr.color  = Color.white;
+        transform.rotation   = Quaternion.Euler(0f, 0f, rotZ);
+        transform.localScale = Vector3.one * scale;
+    }
+
+    // Cuando se instancia este objeto en la red:
+    void Start()
+    {
+        // Si el índice vino en InstantiationData (opcional), úsalo:
+        var data = photonView?.InstantiationData;
+        if (data != null && data.Length >= 3)
+        {
+            int idx       = (int)data[0];
+            float rotZ    = (float)(double)data[1];
+            float scale   = (float)(double)data[2];
+            Apply(idx, rotZ, scale);
+            return;
+        }
+
+        // Si no vino nada, que el Master decida y lo propague por RPC (buffered, para late-joiners):
+        if (PhotonNetwork.IsMasterClient)
+        {
+            int   idx    = (fruitSprites != null && fruitSprites.Length > 0) ? Random.Range(0, fruitSprites.Length) : 0;
+            float rotZ   = randomRotation ? Random.Range(0f, 360f) : 0f;
+            float scale  = Random.Range(minScale, maxScale);
+            photonView.RPC(nameof(RPC_SetSpriteIndex), RpcTarget.AllBuffered, idx, rotZ, scale);
+        }
+    }
+}

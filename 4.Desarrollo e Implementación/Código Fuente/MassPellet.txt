@@ -1,0 +1,126 @@
+using UnityEngine;
+using Photon.Pun;
+using System.Collections;
+using System.Collections.Generic;
+
+[RequireComponent(typeof(SpriteRenderer))]
+[RequireComponent(typeof(Collider2D))]
+[RequireComponent(typeof(Rigidbody2D))]
+public class MassPellet : MonoBehaviourPun
+{
+    [Header("Vida y protección")]
+    [SerializeField] float lifeTime = 12f;       // para no acumular
+    [SerializeField] float selfEatDelay = 0.25f; // tiempo donde el creador NO puede comerlo
+
+    SpriteRenderer sr;
+    Rigidbody2D rb;
+    Collider2D[] pelletCols;
+
+    PhotonView ownerPV;       // dueño por ViewID
+    int ownerViewId = -1;
+    float bornAt;
+    bool alreadyDestroying = false;
+
+    void Awake()
+    {
+        sr = GetComponent<SpriteRenderer>();
+        rb = GetComponent<Rigidbody2D>();
+        pelletCols = GetComponentsInChildren<Collider2D>(true);
+
+        // Ajustes físicos recomendados
+        if (rb)
+        {
+            rb.bodyType = RigidbodyType2D.Dynamic;
+            rb.gravityScale = 0f;
+            rb.linearDamping = 0f;
+            rb.angularDamping = 0f;
+            rb.interpolation = RigidbodyInterpolation2D.Interpolate;
+            rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+        }
+
+        foreach (var c in pelletCols) c.isTrigger = true; // este pellet es de trigger
+    }
+
+    void Start()
+    {
+        bornAt = Time.time;
+        Destroy(gameObject, lifeTime); // TTL de seguridad
+    }
+
+    [PunRPC]
+    public void RPC_SetPelletColor(float r, float g, float b, float a)
+    {
+        if (!sr) sr = GetComponent<SpriteRenderer>();
+        sr.color = new Color(r, g, b, a);
+    }
+
+    // Recibe el ViewID del jugador que disparó (desde ShootMass)
+    [PunRPC]
+    public void RPC_Initialize(int shooterViewId)
+    {
+        ownerViewId = shooterViewId;
+        ownerPV = PhotonView.Find(ownerViewId);
+        if (ownerPV != null) StartCoroutine(TemporarilyIgnoreOwnerColliders());
+    }
+
+    IEnumerator TemporarilyIgnoreOwnerColliders()
+    {
+        if (ownerPV == null) yield break;
+
+        var ownerCols = ownerPV.GetComponentsInChildren<Collider2D>(true);
+        if (ownerCols == null || ownerCols.Length == 0 || pelletCols == null || pelletCols.Length == 0)
+            yield break;
+
+        var pairs = new List<(Collider2D, Collider2D)>();
+        foreach (var pc in pelletCols)
+        {
+            if (!pc) continue;
+            foreach (var oc in ownerCols)
+            {
+                if (!oc) continue;
+                Physics2D.IgnoreCollision(pc, oc, true);
+                pairs.Add((pc, oc));
+            }
+        }
+
+        yield return new WaitForSeconds(selfEatDelay);
+
+        foreach (var (pc, oc) in pairs)
+        {
+            if (pc && oc) Physics2D.IgnoreCollision(pc, oc, false);
+        }
+    }
+
+    void OnTriggerEnter2D(Collider2D other)
+    {
+        // Si colisiona el creador dentro de la ventana de protección, ignora
+        var ov = other.GetComponent<PhotonView>();
+        if (ov != null && ov.ViewID == ownerViewId && (Time.time - bornAt) < selfEatDelay)
+            return;
+
+        // Solo reaccionamos a jugadores (SizeManager presente)
+        if (other.GetComponent<SizeManager>() == null) return;
+
+        // Solo el MASTER destruye. Si no soy Master, le pido por RPC que destruya.
+        if (alreadyDestroying) return;
+
+        if (PhotonNetwork.IsMasterClient)
+        {
+            alreadyDestroying = true;
+            PhotonNetwork.Destroy(gameObject);
+        }
+        else
+        {
+            photonView.RPC(nameof(RPC_DestroyByMaster), RpcTarget.MasterClient);
+        }
+    }
+
+    [PunRPC]
+    void RPC_DestroyByMaster()
+    {
+        // Llamado SOLO en el Master
+        if (!PhotonNetwork.IsMasterClient || alreadyDestroying) return;
+        alreadyDestroying = true;
+        PhotonNetwork.Destroy(gameObject);
+    }
+}

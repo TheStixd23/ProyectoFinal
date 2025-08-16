@@ -1,0 +1,107 @@
+using UnityEngine;
+using Photon.Pun;
+
+[RequireComponent(typeof(PhotonView))]
+[RequireComponent(typeof(Collider2D))]
+public class SizeManager : MonoBehaviourPun
+{
+    [Header("Escala / Balance")]
+    [Tooltip("Velocidad del lerp visual hacia el tamaño objetivo.")]
+    public float scaleSpeed = 5f;
+
+    [Tooltip("Tamaño inicial mínimo permitido (no se puede bajar de aquí).")]
+    public float initialScale = 1f;
+
+    [Tooltip("Cuánto equivale '1 food' al sumar o restar tamaño.")]
+    public float foodDelta = 0.06f;
+
+    [SerializeField] private float currentScale = 1f;
+    public float CurrentScale => currentScale;
+
+    private void Awake()
+    {
+        // En el arranque garantizamos que no arranque menor al mínimo
+        if (currentScale < initialScale) currentScale = initialScale;
+    }
+
+    private void Update()
+    {
+        // Lerp hacia el tamaño destino
+        Vector3 target = new Vector3(currentScale, currentScale, 1f);
+        transform.localScale = Vector3.Lerp(transform.localScale, target, Time.deltaTime * scaleSpeed);
+    }
+
+    // ----- API local -----
+    public void SetScale(float value)
+    {
+        currentScale = Mathf.Max(initialScale, value);
+    }
+
+    public void AddScale(float delta)
+    {
+        currentScale = Mathf.Max(initialScale, currentScale + delta);
+    }
+
+    // ----- Colisiones -----
+    private void OnTriggerEnter2D(Collider2D other)
+    {
+        if (!photonView.IsMine) return;
+
+        // Comer FOOD: +1 food
+        if (other.CompareTag("Food"))
+        {
+            photonView.RPC(nameof(RPC_AddScale), RpcTarget.AllBuffered, foodDelta);
+
+            var pv = other.GetComponent<PhotonView>();
+            if (pv != null)
+                photonView.RPC(nameof(RPC_MasterDestroyAndRespawnFood), RpcTarget.MasterClient, pv.ViewID);
+            return;
+        }
+
+        // Comer PELLET: +1 food (igual que food)
+        if (other.CompareTag("Pellet"))
+        {
+            photonView.RPC(nameof(RPC_AddScale), RpcTarget.AllBuffered, foodDelta);
+
+            var pv = other.GetComponent<PhotonView>();
+            if (pv != null)
+                photonView.RPC(nameof(RPC_MasterDestroy), RpcTarget.MasterClient, pv.ViewID);
+        }
+    }
+
+    // ----- RPCs públicos (para que Split/Shoot puedan invocarlos) -----
+
+    [PunRPC]
+    public void RPC_AddScale(float delta)
+    {
+        AddScale(delta);
+    }
+
+    [PunRPC]
+    public void RPC_SetScale(float value)
+    {
+        SetScale(value);
+    }
+
+    // ----- RPCs de servidor (Master) -----
+
+    [PunRPC]
+    public void RPC_MasterDestroyAndRespawnFood(int viewId)
+    {
+        if (!PhotonNetwork.IsMasterClient) return;
+
+        var target = PhotonView.Find(viewId);
+        if (target != null) PhotonNetwork.Destroy(target.gameObject);
+
+        GameManager.Instance?.SpawnFood();
+    }
+
+    [PunRPC]
+    public void RPC_MasterDestroy(int viewId)
+    {
+        if (!PhotonNetwork.IsMasterClient) return;
+
+        var target = PhotonView.Find(viewId);
+        if (target != null) PhotonNetwork.Destroy(target.gameObject);
+    }
+}

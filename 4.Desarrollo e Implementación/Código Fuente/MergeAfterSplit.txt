@@ -1,0 +1,65 @@
+using UnityEngine;
+using Photon.Pun;
+
+[RequireComponent(typeof(PhotonView))]
+[RequireComponent(typeof(SizeManager))]
+public class MergeAfterSplit : MonoBehaviourPun
+{
+    int groupId = -1;
+    float canMergeAt = 0f;
+    float mergeDistance = 0.3f;
+
+    SizeManager size; PhotonView pv;
+
+    void Awake() { pv = GetComponent<PhotonView>(); size = GetComponent<SizeManager>(); }
+
+    public void Begin(int group, float cooldown, float distance)
+    {
+        groupId = group;
+        canMergeAt = Time.time + Mathf.Max(0f, cooldown);
+        mergeDistance = Mathf.Max(0.01f, distance);
+    }
+
+    void OnTriggerStay2D(Collider2D other)
+    {
+        if (groupId < 0) return;
+        if (!PhotonNetwork.IsMasterClient) return; // Master decide fusión
+
+        var otherMerge = other.GetComponent<MergeAfterSplit>();
+        if (otherMerge == null) return;
+
+        // mismo dueño y mismo grupo
+        if (otherMerge.pv.OwnerActorNr != pv.OwnerActorNr) return;
+        if (otherMerge.groupId != groupId) return;
+
+        // cooldown cumplido para ambos
+        if (Time.time < canMergeAt || Time.time < otherMerge.canMergeAt) return;
+
+        // cercanía
+        if (Vector2.Distance(transform.position, other.transform.position) > mergeDistance) return;
+
+        // Merge: sumamos tamaños y destruimos uno
+        float sum = size.CurrentScale + otherMerge.size.CurrentScale;
+
+        // elegimos receptor (el más grande)
+        var receiver = size.CurrentScale >= otherMerge.size.CurrentScale ? this : otherMerge;
+        var donor    = receiver == this ? otherMerge : this;
+
+        photonView.RPC(nameof(RPC_Merge), RpcTarget.MasterClient, receiver.pv.ViewID, donor.pv.ViewID, sum);
+    }
+
+    [PunRPC]
+    void RPC_Merge(int receiverViewId, int donorViewId, float newScale)
+    {
+        if (!PhotonNetwork.IsMasterClient) return;
+
+        var r = PhotonView.Find(receiverViewId);
+        var d = PhotonView.Find(donorViewId);
+        if (r == null || d == null) return;
+
+        var rSize = r.GetComponent<SizeManager>();
+        if (rSize != null) rSize.SetScale(newScale);
+
+        PhotonNetwork.Destroy(d.gameObject);
+    }
+}

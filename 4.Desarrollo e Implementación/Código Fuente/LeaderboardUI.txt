@@ -1,0 +1,97 @@
+using UnityEngine;
+using Photon.Pun;
+using Photon.Realtime;
+using System.Linq;
+using System.Text;
+using ExitGames.Client.Photon;
+using TMPro;
+
+public class LeaderboardUI : MonoBehaviourPunCallbacks
+{
+    [Header("Arrastra UNO (TMP o UGUI). Si dejas ambos vacíos, intento auto-encontrar")]
+    [SerializeField] TMP_Text tmpText;                 // TextMeshPro (UGUI o 3D)
+    [SerializeField] UnityEngine.UI.Text uiText;       // Text (UGUI)
+
+    [SerializeField] float refreshRate = 0.5f;
+    float timer;
+
+    void Awake()
+    {
+        // Autodetección si no asignaste nada
+        if (!tmpText && !uiText)
+        {
+            tmpText = GetComponentInChildren<TMP_Text>(true);
+            if (!tmpText)
+            {
+                var go = GameObject.Find("RankingText");
+                if (go) tmpText = go.GetComponent<TMP_Text>();
+            }
+            if (!tmpText && !uiText)
+                uiText = GetComponentInChildren<UnityEngine.UI.Text>(true);
+        }
+    }
+
+    void Start() => Redraw();
+
+    void Update()
+    {
+        timer += Time.deltaTime;
+        if (timer >= refreshRate) { timer = 0f; Redraw(); }
+    }
+
+    void SetText(string s)
+    {
+        if (tmpText) tmpText.text = s;
+        if (uiText)  uiText.text  = s;
+    }
+
+    float GetMass(Player p)
+    {
+        if (p.CustomProperties != null && p.CustomProperties.TryGetValue("Mass", out var v))
+        {
+            if (v is float f) return f;
+            if (v is double d) return (float)d;
+            if (float.TryParse(v.ToString(), out var parsed)) return parsed;
+        }
+        return 0f;
+    }
+
+    void Redraw()
+    {
+        if (!PhotonNetwork.IsConnected)
+        {
+            SetText("Conectando a Photon…");
+            return;
+        }
+
+        if (!PhotonNetwork.InRoom)
+        {
+            SetText("Uniéndose a sala…");
+            return;
+        }
+
+        var players = PhotonNetwork.PlayerList;
+        if (players == null || players.Length == 0)
+        {
+            SetText("Esperando jugadores…");
+            return;
+        }
+
+        var ordered = players
+            .OrderByDescending(p => GetMass(p))
+            .ThenBy(p => p.NickName)
+            .Take(10);
+
+        var sb = new StringBuilder();
+        int rank = 1;
+        foreach (var p in ordered)
+            sb.AppendLine($"{rank++,2:00}. {p.NickName} — {GetMass(p):0.00}");
+
+        SetText(sb.Length > 0 ? sb.ToString() : "Esperando jugadores…");
+    }
+
+    // refrescos por eventos de Photon
+    public override void OnPlayerEnteredRoom(Player newPlayer) => Redraw();
+    public override void OnPlayerLeftRoom(Player otherPlayer)  => Redraw();
+    public override void OnPlayerPropertiesUpdate(Player targetPlayer, Hashtable changedProps) => Redraw();
+}

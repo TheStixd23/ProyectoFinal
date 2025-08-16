@@ -1,0 +1,26 @@
+using UnityEngine;
+using Photon.Pun;
+
+[RequireComponent(typeof(Collider2D))]
+public class SpeedBoostPickup : MonoBehaviourPun
+{
+    public float multiplier = 1.35f;
+    public float duration = 5f;
+
+    void Reset() => GetComponent<Collider2D>().isTrigger = true;
+
+    void OnTriggerEnter2D(Collider2D other)
+    {
+        if (!PhotonNetwork.IsMasterClient) return;
+
+        // Asegúrate de que sea un jugador
+        var move = other.GetComponent<Scrips.Movement>();
+        var view = other.GetComponent<PhotonView>();
+        if (move == null || view == null) return;
+
+        view.RPC("RPC_ApplySpeedBoost", view.Owner, multiplier, duration);
+
+        PhotonNetwork.Destroy(gameObject);
+        GameManager.Instance?.SpawnSpeedBoost(); // respawn controlado
+    }
+    }

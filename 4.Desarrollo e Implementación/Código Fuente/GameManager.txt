@@ -1,0 +1,137 @@
+using UnityEngine;
+using Photon.Pun;
+
+public class GameManager : MonoBehaviourPunCallbacks
+{
+    // ---------- Singleton ----------
+    private static GameManager _instance;
+    public static GameManager Instance => _instance ??= FindObjectOfType<GameManager>();
+
+    // Referencia global al tamaño del jugador local (para cámara/auto-escala visual)
+    public static SizeManager LocalPlayerSize { get; private set; }
+
+    [Header("Prefabs (en Resources/)")]
+    public GameObject playerPrefab;      // "Player"
+    public GameObject foodPrefab;        // "Food"
+    public GameObject spikePrefab;       // "Spike"
+    public GameObject speedBoostPrefab;  // "SpeedBoost"
+
+    [Header("Población inicial")]
+    public int initialFood = 120;
+    public int initialSpikes = 20;
+    public int initialSpeedBoosts = 8;
+
+    [Header("Zona de spawn (cuadrado)")]
+    public float spawnRadius = 30f;
+
+    [Header("Red")]
+    [Tooltip("Usa Room Objects para que el entorno no consuma ViewIDs del actor 1")]
+    public bool useRoomObjectsForEnvironment = true;
+
+    // ----------- TESTING: spawn en el mismo punto -----------
+    [Header("Testing - Spawn fijo (para pruebas locales)")]
+    [Tooltip("Si está activo, todos los jugadores nacerán en el mismo punto.")]
+    public bool forceSameSpawnPoint = true;
+
+    [Tooltip("Coordenadas mundo donde nacerán todos los jugadores si 'forceSameSpawnPoint' está activo.")]
+    public Vector2 fixedSpawnPoint = Vector2.zero;
+
+    [Tooltip("Pequeño desplazamiento por jugador para que no se encimen (0 = exactamente mismo punto).")]
+    public float spawnNudgePerActor = 0.25f;
+
+    // --------------------------------------------------------
+
+    void Awake()
+    {
+        if (_instance != null && _instance != this) { Destroy(gameObject); return; }
+        _instance = this;
+    }
+
+    public override void OnJoinedRoom()
+    {
+        // Solo el Master crea el entorno para evitar duplicados
+        if (PhotonNetwork.IsMasterClient)
+        {
+            for (int i = 0; i < initialFood; i++)        SpawnFood();
+            for (int i = 0; i < initialSpikes; i++)      SpawnSpike();
+            for (int i = 0; i < initialSpeedBoosts; i++) SpawnSpeedBoost();
+        }
+    }
+
+    public void SpawnPlayer()
+    {
+        if (playerPrefab == null)
+        {
+            Debug.LogError("Asigna el Player prefab en GameManager.");
+            return;
+        }
+
+        // --- Punto de spawn ---
+        Vector2 spawn;
+        if (forceSameSpawnPoint)
+        {
+            spawn = fixedSpawnPoint;
+
+            // Desplaza un poco según ActorNumber para que no quede exactamente encima
+            if (spawnNudgePerActor > 0f)
+            {
+                int idx = PhotonNetwork.LocalPlayer.ActorNumber; // 1,2,3,...
+                float angle = (idx % 8) * Mathf.PI / 4f;         // 8 direcciones
+                Vector2 nudge = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * spawnNudgePerActor;
+                spawn += nudge;
+            }
+        }
+        else
+        {
+            // Spawn aleatorio normal
+            spawn = Random.insideUnitCircle * Mathf.Max(4f, spawnRadius * 0.6f);
+        }
+
+        // Instanciar jugador en red
+        var go = PhotonNetwork.Instantiate(playerPrefab.name, spawn, Quaternion.identity);
+
+        // Guardar SizeManager local (para cámara/auto-escala visual)
+        LocalPlayerSize = go.GetComponent<SizeManager>();
+
+        // (Opcional) Enlazar cámara de seguimiento si tienes SmoothCameraFollow
+        var camFollow = Camera.main ? Camera.main.GetComponent<SmoothCameraFollow>() : null;
+        if (camFollow) camFollow.SetTarget(go.transform, snap: true);
+    }
+
+    // ---------- Spawns de entorno ----------
+    GameObject NetSpawn(string prefabName, Vector3 pos, Quaternion rot)
+    {
+        if (useRoomObjectsForEnvironment && PhotonNetwork.IsMasterClient)
+            return PhotonNetwork.InstantiateRoomObject(prefabName, pos, rot);
+        else
+            return PhotonNetwork.Instantiate(prefabName, pos, rot);
+    }
+
+    public void SpawnFood()
+    {
+        if (foodPrefab == null) return;
+        NetSpawn(foodPrefab.name, RandomPoint(), Quaternion.identity);
+    }
+
+    public void SpawnSpike()
+    {
+        if (spikePrefab == null) return;
+        NetSpawn(spikePrefab.name, RandomPoint(), Quaternion.Euler(0, 0, Random.Range(0f, 360f)));
+    }
+
+    public void SpawnSpeedBoost()
+    {
+        if (speedBoostPrefab == null) return;
+        NetSpawn(speedBoostPrefab.name, RandomPoint(), Quaternion.identity);
+    }
+
+    // ---------- Util ----------
+    Vector3 RandomPoint()
+    {
+        return new Vector3(
+            Random.Range(-spawnRadius, spawnRadius),
+            Random.Range(-spawnRadius, spawnRadius),
+            0f
+        );
+    }
+}

@@ -1,0 +1,36 @@
+using UnityEngine;
+using Photon.Pun;
+using System.Collections;
+
+[RequireComponent(typeof(SpriteRenderer))]
+public class PlayerColor : MonoBehaviourPun
+{
+    [SerializeField] private Color current = Color.white;
+    public Color CurrentColor => current;
+
+    SpriteRenderer sr;
+
+    void Awake() { sr = GetComponent<SpriteRenderer>(); }
+
+    void OnEnable()
+    {
+        if (photonView.IsMine) StartCoroutine(ApplyRandomWhenReady());
+    }
+
+    IEnumerator ApplyRandomWhenReady()
+    {
+        while (!PhotonNetwork.IsConnectedAndReady) yield return null;
+
+        // color aleatorio saturado/brillante
+        Color c = Random.ColorHSV(0f, 1f, 0.8f, 1f, 0.8f, 1f);
+        photonView.RPC(nameof(RPC_SetPlayerColor), RpcTarget.AllBuffered, c.r, c.g, c.b, 1f);
+    }
+
+    [PunRPC]
+    public void RPC_SetPlayerColor(float r, float g, float b, float a)
+    {
+        current = new Color(r, g, b, a);
+        if (!sr) sr = GetComponent<SpriteRenderer>();
+        sr.color = current;
+    }
+}

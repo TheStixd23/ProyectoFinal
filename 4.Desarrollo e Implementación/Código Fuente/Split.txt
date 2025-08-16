@@ -1,0 +1,104 @@
+using UnityEngine;
+using Photon.Pun;
+
+// Requeridos (un atributo por línea; RequireComponent no acepta 4 en uno)
+[RequireComponent(typeof(PhotonView))]
+[RequireComponent(typeof(Rigidbody2D))]
+[RequireComponent(typeof(SizeManager))]
+[RequireComponent(typeof(PlayerColor))]
+[RequireComponent(typeof(MergeAfterSplit))]
+public class Split : MonoBehaviourPun
+{
+    [Header("Prefabs / nombres en Resources")]
+    public string playerPrefabName = "Player";
+
+    [Header("División")]
+    public float splitMinScale = 1.2f;   // tamaño mínimo para poder dividir
+    public float dashForce     = 8f;     // impulso inicial del clon
+    public float splitCooldown = 1f;     // CD entre divisiones
+
+    [Header("Re-unión")]
+    public float mergeCooldown = 3f;     // tiempo antes de poder re-unirse
+    public float mergeDistance = 0.3f;   // distancia para fusionar
+
+    // refs
+    private SizeManager size;
+    private Rigidbody2D rb;
+    private PlayerColor pcol;
+    private Camera cam;
+    private float lastSplit;
+
+    private void Start()
+    {
+        if (!photonView.IsMine) { enabled = false; return; }
+
+        size = GetComponent<SizeManager>();
+        rb   = GetComponent<Rigidbody2D>();
+        pcol = GetComponent<PlayerColor>();
+        cam  = Camera.main;
+    }
+
+    private void Update()
+    {
+        if (!photonView.IsMine) return;
+
+        if (Input.GetKeyDown(KeyCode.Space) && Time.time - lastSplit > splitCooldown)
+        {
+            lastSplit = Time.time;
+            TrySplit();
+        }
+    }
+
+    private void TrySplit()
+    {
+        // Bloquea si no tienes tamaño suficiente
+        if (size.CurrentScale < splitMinScale) return;
+
+        // Mitades, respetando el mínimo inicial
+        float half = Mathf.Max(size.initialScale, size.CurrentScale * 0.5f);
+
+        // El original se reduce a la mitad
+        size.SetScale(half);
+
+        // Dirección hacia el mouse
+        if (cam == null) cam = Camera.main;
+        Vector3 mouse = cam.ScreenToWorldPoint(Input.mousePosition); mouse.z = 0f;
+        Vector2 dir = (mouse - transform.position).normalized;
+
+        // Instanciar clon hacia adelante
+        GameObject clone = PhotonNetwork.Instantiate(
+            playerPrefabName,
+            transform.position + (Vector3)dir * 0.8f,
+            Quaternion.identity
+        );
+
+        // --- Tamaño del clon en todos los clientes ---
+        var cloneSM = clone.GetComponent<SizeManager>();
+        cloneSM.SetScale(half); // local
+        // y también por red (delta desde su escala inicial)
+        float delta = half - cloneSM.initialScale;
+        var clonePV = clone.GetComponent<PhotonView>();
+        if (clonePV != null)
+        {
+            clonePV.RPC(nameof(SizeManager.RPC_AddScale), RpcTarget.AllBuffered, delta);
+        }
+
+        // --- Color heredado ---
+        Color c = pcol.CurrentColor;
+        if (clonePV != null)
+            clonePV.RPC(nameof(PlayerColor.RPC_SetPlayerColor), RpcTarget.AllBuffered, c.r, c.g, c.b, c.a);
+
+        // --- Impulso inicial ---
+        var crb = clone.GetComponent<Rigidbody2D>();
+        if (crb != null)
+        {
+            crb.linearVelocity = Vector2.zero;
+            crb.AddForce(dir * dashForce, ForceMode2D.Impulse);
+        }
+
+        // --- Habilitar re-unión para ambos ---
+        int groupId = Random.Range(int.MinValue, int.MaxValue);
+        GetComponent<MergeAfterSplit>().Begin(groupId, mergeCooldown, mergeDistance);
+        clone.GetComponent<MergeAfterSplit>().Begin(groupId, mergeCooldown, mergeDistance);
+    }
+}
